@@ -4,16 +4,17 @@
     03/22/2026
 
     to run:
-        1. make main
+        1. make all
         2. ./main
         3. make clean
     
     This program implements a shell in C
 */
 #include <stdio.h>
+#include "shell/shell.h"
 
 int main()
 {
-    printf("Hello World\n");
+    run_shell();
     return 0;
 }
