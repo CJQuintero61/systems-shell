@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/wait.h>
 
 #define SIZE 1024
 #define MAX_TOKENS 32
@@ -37,6 +38,7 @@ void print_cwd()
     }
     else
     {
+        // if this fails, then stop the shell
         perror("Failed to print working directory\n");
         exit(1);
     }
@@ -59,12 +61,13 @@ char* get_input(char* input, size_t size)
         // check if the null is from end of file (Ctrl+D)
         if (feof(stdin))
         {
-            printf("Thank you for using the shell!\n");
+            printf("\nThank you for using the shell!\n");
             exit(0);
         }
         // catch read errors that aren't from EOF
         else
         {
+            // if reading input fails, then stop the shell
             perror("Error reading input line\n");
             exit(1);
         }
@@ -120,6 +123,92 @@ void print_tokens(char* tokens[])
     }
 }
 
+void handle_status(int status)
+{
+    /*
+        checks the status code of a child process
+
+        :params:
+        status: int - the status code of the child
+    */
+    int signal;
+
+    if (WIFEXITED(status))
+    {
+        // we don't need to handle proper termination
+    }
+    else if (WIFSIGNALED(status))
+    {
+        signal = WTERMSIG(status);
+        fprintf(stderr, "Child termianted by signal: %d\n", signal);
+    }
+    else
+    {
+        printf("Child terminated abnormally\n");
+    }
+}
+
+void run_command(char* tokens[])
+{
+    /*
+        this function runs a command by calling fork
+        and having the child process run the command
+        while the parent waits
+
+        :params:
+        tokens: char** - the tokens array
+    */
+    pid_t child_pid = 0;
+    int status;
+
+    // special cases
+    if (tokens[0] == NULL)
+    {
+        // if the user just hit space, do nothing
+        return;
+    }
+    else if (strcmp(tokens[0], "cd") == 0)
+    {
+        // changing directories affects the main shell process
+        // so do not call fork for this
+
+        if (tokens[1] == NULL)
+        {
+            fprintf(stderr, "missing directory path argument\n");
+            return;
+        }
+
+        if ((chdir(tokens[1])) == -1)
+        {
+            // will be printed if the specified directory doesn't exist
+            // or if chdir() fails
+            perror("failed to change directories");
+            return;
+        }
+
+        // prevent fork calls
+        return;
+    }
+
+    if((child_pid = fork()) == -1)
+    {
+        // instead of ending the app, just return to the shell loop
+        perror("Error calling fork: command could not be ran\n");
+        return;
+    }
+    
+    if (child_pid == 0)
+    {
+        return;
+    }
+    else
+    {
+        // parent block
+        waitpid(child_pid, &status, 0);
+        handle_status(status);
+    }
+}
+
 void run_shell()
 {
     /*
@@ -135,5 +224,6 @@ void run_shell()
         print_cwd();
         get_input(input, sizeof(input));
         tokenize_input(input, tokens);
+        run_command(tokens);
     }
 }
