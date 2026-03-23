@@ -13,6 +13,8 @@ void print_cwd();
 char* get_input(char* input, size_t size);
 void tokenize_input(char input[], char* tokens[]);
 void print_tokens(char* tokens[]);
+void handle_status(int status);
+void run_comamnd(char* tokens[]);
 void run_shell();
 
 
