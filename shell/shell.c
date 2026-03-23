@@ -135,7 +135,5 @@ void run_shell()
         print_cwd();
         get_input(input, sizeof(input));
         tokenize_input(input, tokens);
-        
-        print_tokens(tokens);
     }
 }
