@@ -10,7 +10,17 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <errno.h>
 
+/*
+    global constants
+
+    SIZE - the max length of the user input string
+
+    MAX_TOKENS - the max tokens that can be stored. In practice, a NULL is placed after the final valid token.
+        If all tokens are filled, then only [0, 30] are stored and [31] is the NULL token
+        while if something like "ls -lah" is used, [0] is "ls", [1] is "-lah", and [2] is NULL.
+*/
 #define SIZE 1024
 #define MAX_TOKENS 32
 
@@ -186,8 +196,15 @@ void run_command(char* tokens[])
             return;
         }
 
-        // prevent fork calls
+        // changing directories was successful
+        // so return to prevent fork calls
         return;
+    }
+    else if (strcmp(tokens[0], "exit") == 0)
+    {
+        // exit is a built in that doesn't require fork
+        printf("Thank you for using the shell!\n");
+        exit(0);
     }
 
     if((child_pid = fork()) == -1)
@@ -199,7 +216,31 @@ void run_command(char* tokens[])
     
     if (child_pid == 0)
     {
-        return;
+        // child block
+
+        // the child process executes the command
+        // code after execvp is only ran if execvp fails
+        execvp(tokens[0], tokens);
+        
+        // check why execvp failed
+        switch (errno)
+        {
+            case EACCES:
+                // 126 is the common exit code for permission denied
+                fprintf(stderr, "%s: permission denied\n", tokens[0]);
+                exit(126);
+                break;
+            case ENOENT:
+                // 127 is the common exit code for command not found
+                fprintf(stderr, "%s: command not found\n", tokens[0]);
+                exit(127);
+                break;
+            default:
+                // execvp failed due to an unknown reason
+                perror("call to execvp failed");
+                exit(1);
+                break;
+        }
     }
     else
     {
