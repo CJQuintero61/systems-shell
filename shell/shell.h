@@ -16,6 +16,7 @@ void print_tokens(char* tokens[]);
 void handle_status(int status);
 void run_comamnd(char* tokens[]);
 void run_shell();
+void run_shell_from_file(const char *filename);
 
 
 #endif // SHELL_H

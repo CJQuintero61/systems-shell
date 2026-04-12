@@ -268,3 +268,43 @@ void run_shell()
         run_command(tokens);
     }
 }
+
+void run_shell_from_file(const char *filename)
+{
+    /*
+        This function reads commands from a file and executes them
+        one line at a time, instead of reading from user input.
+
+        :params:
+        filename: const char* - the path to the script file
+    */
+    FILE *fp = fopen(filename, "r");
+
+    if (fp == NULL)
+    {
+        perror("Error opening file");
+        return;
+    }
+
+    char input[SIZE] = {0};
+    char *tokens[MAX_TOKENS] = {0};
+
+    while (fgets(input, sizeof(input), fp) != NULL)
+    {
+        // strip both \n and \r (handles Windows CRLF line endings)
+        input[strcspn(input, "\r\n")] = '\0';
+
+        // skip empty lines and comment lines starting with #
+        if (input[0] == '\0' || input[0] == '#')
+            continue;
+
+        // echo the command so you can see what's being run
+        printf("%s$ %s\n", filename, input);
+
+        tokenize_input(input, tokens);
+        run_command(tokens);
+    }
+
+    fclose(fp);
+    printf("\nFile execution complete.\n");
+}

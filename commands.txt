@@ -1,0 +1,5 @@
+# this is a comment, it will be skipped
+ls
+pwd
+echo Hello from the file!
+ls -lah
