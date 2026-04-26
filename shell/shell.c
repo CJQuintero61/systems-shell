@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <fcntl.h>
 
 /*
     global constants
@@ -23,6 +24,122 @@
 */
 #define SIZE 1024
 #define MAX_TOKENS 32
+
+
+
+int has_pipe(char* tokens[]) {
+    for (int i = 0; tokens[i] != NULL; i++) {
+        if (strcmp(tokens[i], "|") == 0) return 1;
+    }
+    return 0;
+}
+
+int has_redirection(char* tokens[]) {
+    for (int i = 0; tokens[i] != NULL; i++) {
+        if (strcmp(tokens[i], "<") == 0 || strcmp(tokens[i], ">") == 0)
+            return 1;
+    }
+    return 0;
+}
+
+void handle_redirection(char* tokens[]) {
+    int i;
+    int in_fd = -1, out_fd = -1;
+
+    for (i = 0; tokens[i] != NULL; i++) {
+        // INPUT REDIRECTION <
+        if (strcmp(tokens[i], "<") == 0) {
+            if (tokens[i+1] == NULL) {
+                fprintf(stderr, "Missing input file\n");
+                exit(1);
+            }
+
+            in_fd = open(tokens[i+1], O_RDONLY);
+            if (in_fd < 0) {
+                perror("Failed to open input file");
+                exit(1);
+            }
+
+            dup2(in_fd, STDIN_FILENO);
+            close(in_fd);
+
+            tokens[i] = NULL; // split command
+        }
+
+        // OUTPUT REDIRECTION >
+        else if (strcmp(tokens[i], ">") == 0) {
+            if (tokens[i+1] == NULL) {
+                fprintf(stderr, "Missing output file\n");
+                exit(1);
+            }
+
+            out_fd = open(tokens[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
+            if (out_fd < 0) {
+                perror("Failed to open output file");
+                exit(1);
+            }
+
+            dup2(out_fd, STDOUT_FILENO);
+            close(out_fd);
+
+            tokens[i] = NULL;
+        }
+    }
+}
+
+void split_pipe(char* tokens[], char** left[], char** right[]) {
+    for (int i = 0; tokens[i] != NULL; i++) {
+        if (strcmp(tokens[i], "|") == 0) {
+            tokens[i] = NULL;
+            *left = tokens;
+            *right = &tokens[i+1];
+            return;
+        }
+    }
+}
+
+void handle_pipe(char* tokens[]) {
+    int fd[2];
+    pid_t pid1, pid2;
+
+    char **left, **right;
+    split_pipe(tokens, &left, &right);
+
+    if (pipe(fd) == -1) {
+        perror("Pipe failed");
+        return;
+    }
+
+    // FIRST CHILD (LEFT COMMAND)
+    if ((pid1 = fork()) == 0) {
+        dup2(fd[1], STDOUT_FILENO);
+        close(fd[0]);
+        close(fd[1]);
+
+        execvp(left[0], left);
+        perror("exec failed");
+        exit(1);
+    }
+
+    // SECOND CHILD (RIGHT COMMAND)
+    if ((pid2 = fork()) == 0) {
+        dup2(fd[0], STDIN_FILENO);
+        close(fd[1]);
+        close(fd[0]);
+
+        execvp(right[0], right);
+        perror("exec failed");
+        exit(1);
+    }
+
+    // PARENT
+    close(fd[0]);
+    close(fd[1]);
+
+    waitpid(pid1, NULL, 0);
+    waitpid(pid2, NULL, 0);
+}
+
 
 void print_prompt()
 {
@@ -207,6 +324,12 @@ void run_command(char* tokens[])
         exit(0);
     }
 
+    // HANDLE PIPING FIRST (before fork)
+    if (has_pipe(tokens)) {
+        handle_pipe(tokens);
+        return;
+}
+
     if((child_pid = fork()) == -1)
     {
         // instead of ending the app, just return to the shell loop
@@ -217,7 +340,10 @@ void run_command(char* tokens[])
     if (child_pid == 0)
     {
         // child block
-
+        // HANDLE REDIRECTION IN CHILD
+        if (has_redirection(tokens)) {
+            handle_redirection(tokens);
+        }
         // the child process executes the command
         // code after execvp is only ran if execvp fails
         execvp(tokens[0], tokens);
@@ -308,3 +434,7 @@ void run_shell_from_file(const char *filename)
     fclose(fp);
     printf("\nFile execution complete.\n");
 }
+
+
+
+
