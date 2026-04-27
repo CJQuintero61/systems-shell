@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <signal.h>
 
 /*
     global constants
@@ -23,6 +24,10 @@
 */
 #define SIZE 1024
 #define MAX_TOKENS 32
+
+pid_t current_child_pid = -1;
+
+void handle_status(int status);
 
 void print_prompt()
 {
@@ -54,7 +59,7 @@ void print_cwd()
     }
 }
 
-char* get_input(char* input, size_t size)
+char *get_input(char *input, size_t size)
 {
     /*
         this function gets the input line
@@ -66,13 +71,24 @@ char* get_input(char* input, size_t size)
         input: char* - the input string
     */
 
-    if (fgets(input, size, stdin) == NULL)
+    while (1)
     {
+        if (fgets(input, size, stdin) != NULL)
+        {
+            return input;
+        }
+
         // check if the null is from end of file (Ctrl+D)
         if (feof(stdin))
         {
             printf("\nThank you for using the shell!\n");
             exit(0);
+        }
+        // signal interrupted fgets, just retry the read - Boris Hernandez
+        else if (errno == EINTR)
+        {
+            clearerr(stdin);
+            continue;
         }
         // catch read errors that aren't from EOF
         else
@@ -82,11 +98,9 @@ char* get_input(char* input, size_t size)
             exit(1);
         }
     }
-
-    return input;
 }
 
-void tokenize_input(char input[], char* tokens[])
+void tokenize_input(char input[], char *tokens[])
 {
     /*
         this function tokenizes the input string into the tokens array
@@ -101,10 +115,10 @@ void tokenize_input(char input[], char* tokens[])
         tokens: char** - an array of strings representing each token
     */
     int idx = 0;
-    char *token = strtok(input, " \t\n");       // tokenize the input by spaces, tabs, and new lines
+    char *token = strtok(input, " \t\n"); // tokenize the input by spaces, tabs, and new lines
 
     // continue to process tokens
-    while(token != NULL && idx < MAX_TOKENS - 1)
+    while (token != NULL && idx < MAX_TOKENS - 1)
     {
         tokens[idx++] = token;
         token = strtok(NULL, " \t\n");
@@ -114,7 +128,7 @@ void tokenize_input(char input[], char* tokens[])
     tokens[idx] = NULL;
 }
 
-void print_tokens(char* tokens[])
+void print_tokens(char *tokens[])
 {
     /*
         A debug function to test the tokenizer.
@@ -130,6 +144,110 @@ void print_tokens(char* tokens[])
     {
         printf("[%d]: %s\n", idx, tokens[idx]);
         idx++;
+    }
+}
+
+void sigint_handler(int sig)
+{
+    /*
+        Handles SIGINT (Ctrl+C) by forwarding it to the child process
+        instead of terminating the shell.
+
+        :params:
+        sig: int - the signal number (SIGINT)
+    */
+    if (current_child_pid > 0)
+    {
+        if (kill(current_child_pid, SIGINT) == -1)
+        {
+            perror("Error sending SIGINT to child");
+        }
+    }
+    else
+    {
+        // no child running, print newline
+        write(STDOUT_FILENO, "\n", 1);
+        print_cwd();
+        fflush(stdout);
+    }
+}
+
+void sigtstp_handler(int sig)
+{
+    /*
+        Handles SIGTSTP (Ctrl+Z) by forwarding it to the child process
+        instead of stopping the shell.
+
+        :params:
+        sig: int - the signal number (SIGTSTP)
+    */
+    if (current_child_pid > 0)
+    {
+        if (kill(current_child_pid, SIGTSTP) == -1)
+        {
+            perror("Error sending SIGTSTP to child");
+        }
+    }
+}
+
+void sigchld_handler(int sig)
+{
+    /*
+        Handles SIGCHLD to clean up zombie processes when a child terminates.
+        Uses waitpid with WNOHANG to reap any available child processes.
+
+        Only resets current_child_pid — does NOT call handle_status() because
+        run_command's waitpid() already handles that, so we avoid calling it twice.
+
+        :params:
+        sig: int - the signal number (SIGCHLD)
+    */
+
+    if (current_child_pid == -1)
+    {
+        return;
+    }
+
+    pid_t pid;
+    int status;
+
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    {
+        if (pid == current_child_pid)
+        {
+            current_child_pid = -1;
+        }
+    }
+}
+
+void setup_signal_handlers()
+{
+    /*
+        Sets up signal handlers for SIGINT, SIGTSTP, and SIGCHLD
+        using sigaction() with proper error checking.
+    */
+    struct sigaction sa_int, sa_tstp, sa_chld;
+
+    // Setup SIGINT handler
+    sigemptyset(&sa_int.sa_mask);
+    sa_int.sa_flags = 0;
+    sa_int.sa_handler = sigint_handler;
+
+    if (sigaction(SIGINT, &sa_int, NULL) == -1)
+    {
+        perror("Error setting up SIGINT handler");
+        exit(1);
+    }
+
+    // Setup SIGTSTP handler
+    sigemptyset(&sa_tstp.sa_mask);
+    sa_tstp.sa_flags = 0;
+    sa_tstp.sa_handler = sigtstp_handler;
+
+    if (sigaction(SIGTSTP, &sa_tstp, NULL) == -1)
+    {
+        perror("Error setting up SIGTSTP handler");
+        exit(1);
     }
 }
 
@@ -150,7 +268,7 @@ void handle_status(int status)
     else if (WIFSIGNALED(status))
     {
         signal = WTERMSIG(status);
-        fprintf(stderr, "Child termianted by signal: %d\n", signal);
+        fprintf(stderr, "\nChild terminated by signal: %d\n", signal);
     }
     else
     {
@@ -158,7 +276,7 @@ void handle_status(int status)
     }
 }
 
-void run_command(char* tokens[])
+void run_command(char *tokens[])
 {
     /*
         this function runs a command by calling fork
@@ -207,45 +325,52 @@ void run_command(char* tokens[])
         exit(0);
     }
 
-    if((child_pid = fork()) == -1)
+    if ((child_pid = fork()) == -1)
     {
         // instead of ending the app, just return to the shell loop
         perror("Error calling fork: command could not be ran\n");
         return;
     }
-    
+
     if (child_pid == 0)
     {
         // child block
 
+        // reset signal handlers to default so child behaves normally - Boris Hernandez
+        signal(SIGINT, SIG_DFL);
+        signal(SIGTSTP, SIG_DFL);
+        signal(SIGCHLD, SIG_DFL);
+
         // the child process executes the command
         // code after execvp is only ran if execvp fails
         execvp(tokens[0], tokens);
-        
+
         // check why execvp failed
         switch (errno)
         {
-            case EACCES:
-                // 126 is the common exit code for permission denied
-                fprintf(stderr, "%s: permission denied\n", tokens[0]);
-                exit(126);
-                break;
-            case ENOENT:
-                // 127 is the common exit code for command not found
-                fprintf(stderr, "%s: command not found\n", tokens[0]);
-                exit(127);
-                break;
-            default:
-                // execvp failed due to an unknown reason
-                perror("call to execvp failed");
-                exit(1);
-                break;
+        case EACCES:
+            // 126 is the common exit code for permission denied
+            fprintf(stderr, "%s: permission denied\n", tokens[0]);
+            exit(126);
+            break;
+        case ENOENT:
+            // 127 is the common exit code for command not found
+            fprintf(stderr, "%s: command not found\n", tokens[0]);
+            exit(127);
+            break;
+        default:
+            // execvp failed due to an unknown reason
+            perror("call to execvp failed");
+            exit(1);
+            break;
         }
     }
     else
     {
         // parent block
+        current_child_pid = child_pid;
         waitpid(child_pid, &status, 0);
+        current_child_pid = -1;
         handle_status(status);
     }
 }
@@ -258,8 +383,9 @@ void run_shell()
     char input[SIZE] = {0};
     char *tokens[MAX_TOKENS] = {0};
 
+    setup_signal_handlers();
     print_prompt();
-    
+
     while (1)
     {
         print_cwd();
