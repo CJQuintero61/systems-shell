@@ -43,102 +43,124 @@ int has_redirection(char* tokens[]) {
 }
 
 void handle_redirection(char* tokens[]) {
-    int i;
-    int in_fd = -1, out_fd = -1;
-
-    for (i = 0; tokens[i] != NULL; i++) {
-        // INPUT REDIRECTION <
+    for (int i = 0; tokens[i] != NULL; i++) {
+        
+        // INPUT <
         if (strcmp(tokens[i], "<") == 0) {
+            int fd = open(tokens[i+1], O_RDONLY);
             if (tokens[i+1] == NULL) {
-                fprintf(stderr, "Missing input file\n");
+                fprintf(stderr, "Missing file for redirection\n");
+                exit(1);
+                }
+            if (fd < 0) {
+                perror("input file");
                 exit(1);
             }
-
-            in_fd = open(tokens[i+1], O_RDONLY);
-            if (in_fd < 0) {
-                perror("Failed to open input file");
-                exit(1);
-            }
-
-            dup2(in_fd, STDIN_FILENO);
-            close(in_fd);
-
-            tokens[i] = NULL; // split command
+            dup2(fd, STDIN_FILENO);
+            close(fd);
+            tokens[i] = NULL;
+tokens[i+1] = NULL;
         }
 
-        // OUTPUT REDIRECTION >
+        // OUTPUT >
         else if (strcmp(tokens[i], ">") == 0) {
+            int fd = open(tokens[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
             if (tokens[i+1] == NULL) {
-                fprintf(stderr, "Missing output file\n");
+                fprintf(stderr, "Missing file for redirection\n");
+                exit(1);
+                }
+            if (fd < 0) {
+                perror("output file");
                 exit(1);
             }
-
-            out_fd = open(tokens[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
-            if (out_fd < 0) {
-                perror("Failed to open output file");
-                exit(1);
-            }
-
-            dup2(out_fd, STDOUT_FILENO);
-            close(out_fd);
-
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
             tokens[i] = NULL;
+            tokens[i+1] = NULL;
         }
     }
 }
 
-void split_pipe(char* tokens[], char** left[], char** right[]) {
+int split_pipeline(char* tokens[], char* commands[][MAX_TOKENS]) {
+    int cmd_idx = 0;
+    int token_idx = 0;
+
     for (int i = 0; tokens[i] != NULL; i++) {
         if (strcmp(tokens[i], "|") == 0) {
-            tokens[i] = NULL;
-            *left = tokens;
-            *right = &tokens[i+1];
-            return;
+            commands[cmd_idx][token_idx] = NULL;
+            cmd_idx++;
+            token_idx = 0;
+        } else {
+            commands[cmd_idx][token_idx++] = tokens[i];
         }
     }
+
+    commands[cmd_idx][token_idx] = NULL;
+    return cmd_idx + 1; // number of commands
+}
+void execute_pipeline(char* tokens[]) {
+    char* commands[MAX_TOKENS][MAX_TOKENS];
+
+    int num_cmds = split_pipeline(tokens, commands);
+
+    int pipes[MAX_TOKENS][2];
+
+    // Create pipes
+    for (int i = 0; i < num_cmds - 1; i++) {
+        if (pipe(pipes[i]) < 0) {
+            perror("pipe failed");
+            exit(1);
+        }
+    }
+
+    for (int i = 0; i < num_cmds; i++) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork failed");
+            exit(1);
+        }
+
+        if (pid == 0) {
+            // CHILD
+
+            // INPUT from previous pipe
+            if (i > 0) {
+                dup2(pipes[i-1][0], STDIN_FILENO);
+            }
+
+            // OUTPUT to next pipe
+            if (i < num_cmds - 1) {
+                dup2(pipes[i][1], STDOUT_FILENO);
+            }
+
+            // Close all pipes
+            for (int j = 0; j < num_cmds - 1; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+
+            // HANDLE REDIRECTION INSIDE EACH COMMAND
+            handle_redirection(commands[i]);
+
+            execvp(commands[i][0], commands[i]);
+            perror("exec failed");
+            exit(1);
+        }
+    }
+
+    // PARENT closes all pipes
+    for (int i = 0; i < num_cmds - 1; i++) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
+
+    // Wait for all children
+    for (int i = 0; i < num_cmds; i++) {
+        wait(NULL);
+    }
 }
 
-void handle_pipe(char* tokens[]) {
-    int fd[2];
-    pid_t pid1, pid2;
 
-    char **left, **right;
-    split_pipe(tokens, &left, &right);
-
-    if (pipe(fd) == -1) {
-        perror("Pipe failed");
-        return;
-    }
-
-    // FIRST CHILD (LEFT COMMAND)
-    if ((pid1 = fork()) == 0) {
-        dup2(fd[1], STDOUT_FILENO);
-        close(fd[0]);
-        close(fd[1]);
-
-        execvp(left[0], left);
-        perror("exec failed");
-        exit(1);
-    }
-
-    // SECOND CHILD (RIGHT COMMAND)
-    if ((pid2 = fork()) == 0) {
-        dup2(fd[0], STDIN_FILENO);
-        close(fd[1]);
-        close(fd[0]);
-
-        execvp(right[0], right);
-        perror("exec failed");
-        exit(1);
-    }
-
-    // PARENT
-    close(fd[0]);
-    close(fd[1]);
-
-    waitpid(pid1, NULL, 0);
-    waitpid(pid2, NULL, 0);
-}
 
 
 void print_prompt()
@@ -326,9 +348,9 @@ void run_command(char* tokens[])
 
     // HANDLE PIPING FIRST (before fork)
     if (has_pipe(tokens)) {
-        handle_pipe(tokens);
-        return;
-}
+    execute_pipeline(tokens);
+    return;
+    }
 
     if((child_pid = fork()) == -1)
     {
