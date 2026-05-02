@@ -47,11 +47,14 @@ void handle_redirection(char* tokens[]) {
         
         // INPUT <
         if (strcmp(tokens[i], "<") == 0) {
+
             int fd = open(tokens[i+1], O_RDONLY);
+
             if (tokens[i+1] == NULL) {
                 fprintf(stderr, "Missing file for redirection\n");
                 exit(1);
                 }
+
             if (fd < 0) {
                 perror("input file");
                 exit(1);
@@ -59,16 +62,19 @@ void handle_redirection(char* tokens[]) {
             dup2(fd, STDIN_FILENO);
             close(fd);
             tokens[i] = NULL;
-tokens[i+1] = NULL;
+            tokens[i+1] = NULL;
         }
 
         // OUTPUT >
         else if (strcmp(tokens[i], ">") == 0) {
+
             int fd = open(tokens[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
+
             if (tokens[i+1] == NULL) {
                 fprintf(stderr, "Missing file for redirection\n");
                 exit(1);
                 }
+
             if (fd < 0) {
                 perror("output file");
                 exit(1);
@@ -86,11 +92,13 @@ int split_pipeline(char* tokens[], char* commands[][MAX_TOKENS]) {
     int token_idx = 0;
 
     for (int i = 0; tokens[i] != NULL; i++) {
+
         if (strcmp(tokens[i], "|") == 0) {
             commands[cmd_idx][token_idx] = NULL;
             cmd_idx++;
             token_idx = 0;
-        } else {
+        } 
+        else {
             commands[cmd_idx][token_idx++] = tokens[i];
         }
     }
