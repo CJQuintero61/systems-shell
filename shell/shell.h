@@ -10,13 +10,17 @@
 
 void print_prompt();
 void print_cwd();
-char* get_input(char* input, size_t size);
-void tokenize_input(char input[], char* tokens[]);
-void print_tokens(char* tokens[]);
+char *get_input(char *input, size_t size);
+void tokenize_input(char input[], char *tokens[]);
+void print_tokens(char *tokens[]);
 void handle_status(int status);
-void run_comamnd(char* tokens[]);
+void run_comamnd(char *tokens[]);
 void run_shell();
 void run_shell_from_file(const char *filename);
 
+void setup_signal_handlers();
+void sigint_handler(int sig);
+void sigtstp_handler(int sig);
+void sigchld_handler(int sig);
 
 #endif // SHELL_H
