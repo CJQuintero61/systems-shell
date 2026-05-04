@@ -11,7 +11,9 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
+
 
 /*
     global constants
@@ -25,8 +27,149 @@
 #define SIZE 1024
 #define MAX_TOKENS 32
 
-pid_t current_child_pid = -1;
 
+int has_pipe(char* tokens[]) {
+    for (int i = 0; tokens[i] != NULL; i++) {
+        if (strcmp(tokens[i], "|") == 0) return 1;
+    }
+    return 0;
+}
+
+int has_redirection(char* tokens[]) {
+    for (int i = 0; tokens[i] != NULL; i++) {
+        if (strcmp(tokens[i], "<") == 0 || strcmp(tokens[i], ">") == 0)
+            return 1;
+    }
+    return 0;
+}
+
+void handle_redirection(char* tokens[]) {
+    for (int i = 0; tokens[i] != NULL; i++) {
+        
+        // INPUT <
+        if (strcmp(tokens[i], "<") == 0) {
+
+            int fd = open(tokens[i+1], O_RDONLY);
+
+            if (tokens[i+1] == NULL) {
+                fprintf(stderr, "Missing file for redirection\n");
+                exit(1);
+                }
+
+            if (fd < 0) {
+                perror("input file");
+                exit(1);
+            }
+            dup2(fd, STDIN_FILENO);
+            close(fd);
+            tokens[i] = NULL;
+            tokens[i+1] = NULL;
+        }
+
+        // OUTPUT >
+        else if (strcmp(tokens[i], ">") == 0) {
+
+            int fd = open(tokens[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
+
+            if (tokens[i+1] == NULL) {
+                fprintf(stderr, "Missing file for redirection\n");
+                exit(1);
+                }
+
+            if (fd < 0) {
+                perror("output file");
+                exit(1);
+            }
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+            tokens[i] = NULL;
+            tokens[i+1] = NULL;
+        }
+    }
+}
+
+int split_pipeline(char* tokens[], char* commands[][MAX_TOKENS]) {
+    int cmd_idx = 0;
+    int token_idx = 0;
+
+    for (int i = 0; tokens[i] != NULL; i++) {
+
+        if (strcmp(tokens[i], "|") == 0) {
+            commands[cmd_idx][token_idx] = NULL;
+            cmd_idx++;
+            token_idx = 0;
+        } 
+        else {
+            commands[cmd_idx][token_idx++] = tokens[i];
+        }
+    }
+
+    commands[cmd_idx][token_idx] = NULL;
+    return cmd_idx + 1; // number of commands
+}
+void execute_pipeline(char* tokens[]) {
+    char* commands[MAX_TOKENS][MAX_TOKENS];
+
+    int num_cmds = split_pipeline(tokens, commands);
+
+    int pipes[MAX_TOKENS][2];
+
+    // Create pipes
+    for (int i = 0; i < num_cmds - 1; i++) {
+        if (pipe(pipes[i]) < 0) {
+            perror("pipe failed");
+            exit(1);
+        }
+    }
+
+    for (int i = 0; i < num_cmds; i++) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork failed");
+            exit(1);
+        }
+
+        if (pid == 0) {
+            // CHILD
+
+            // INPUT from previous pipe
+            if (i > 0) {
+                dup2(pipes[i-1][0], STDIN_FILENO);
+            }
+
+            // OUTPUT to next pipe
+            if (i < num_cmds - 1) {
+                dup2(pipes[i][1], STDOUT_FILENO);
+            }
+
+            // Close all pipes
+            for (int j = 0; j < num_cmds - 1; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+
+            // HANDLE REDIRECTION INSIDE EACH COMMAND
+            handle_redirection(commands[i]);
+
+            execvp(commands[i][0], commands[i]);
+            perror("exec failed");
+            exit(1);
+        }
+    }
+
+    // PARENT closes all pipes
+    for (int i = 0; i < num_cmds - 1; i++) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
+
+    // Wait for all children
+    for (int i = 0; i < num_cmds; i++) {
+        wait(NULL);
+    }
+}
+
+pid_t current_child_pid = -1;
 void handle_status(int status);
 
 void print_prompt()
@@ -325,6 +468,12 @@ void run_command(char *tokens[])
         exit(0);
     }
 
+    // HANDLE PIPING FIRST (before fork)
+    if (has_pipe(tokens)) {
+    execute_pipeline(tokens);
+    return;
+    }
+
     if ((child_pid = fork()) == -1)
     {
         // instead of ending the app, just return to the shell loop
@@ -335,6 +484,11 @@ void run_command(char *tokens[])
     if (child_pid == 0)
     {
         // child block
+      
+        // HANDLE REDIRECTION IN CHILD
+        if (has_redirection(tokens)) {
+            handle_redirection(tokens);
+        }
 
         // reset signal handlers to default so child behaves normally - Boris Hernandez
         signal(SIGINT, SIG_DFL);
@@ -434,3 +588,7 @@ void run_shell_from_file(const char *filename)
     fclose(fp);
     printf("\nFile execution complete.\n");
 }
+
+
+
+
