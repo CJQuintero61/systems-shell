@@ -1,0 +1,173 @@
+# Test Cases for Simple Shell Implementation
+
+## Overview
+The following test cases were created to verify that the shell meets the project requirements for command execution, built-in commands, process management, redirection, piping, signal handling, interactive mode, batch mode, and error handling.
+
+Test Case 1: Basic Command Execution
+Input: pwd
+Expected Output: current directory is displayed
+Actual Output: /mnt/c/Users/Owner/VS_CODE/systems-shell
+Result: Pass
+
+Test Case 2: Built-in cd
+Input: cd ..
+Expected Output: directory changes successfully
+Actual Output: /mnt/c/Users/Owner/VS_CODE$
+Result: Pass
+
+Test Case 3: Invalid cd
+Input: cd fakefolder
+Expected Output: error message is displayed and shell keeps running
+Actual Output: failed to change directories: No such file or directory
+Result: Pass
+
+Test Case 4: Built-in help
+Input: help
+Expected Output: help information is displayed
+Actual Output: 
+Built-in commands:
+  cd <dir>   Change current directory
+  help       Show this help message
+  exit       Exit the shell
+Features:
+  command execution
+  input redirection with <
+  output redirection with >
+  piping with |
+  background execution with &
+  Ctrl+C and Ctrl+Z signal forwarding
+Result: Pass
+
+Test Case 5: Built-in exit
+Input: exit
+Expected Output: shell exits successfully
+Actual Output: Thank you for using the shell!
+Result: Pass
+
+Test Case 6: Output Redirection
+Input: echo hello > out.txt
+Expected Output: out.txt is created and contains hello
+Actual Output: 
+Result: Pass
+
+Test Case 7: Input Redirection
+Input: cat < out.txt
+Expected Output: contents of input.txt are displayed
+Actual Output: hello
+Result: Pass
+
+Test Case 8: Missing Input Redirection File
+Input: cat <
+Expected Output: redirection error message is displayed
+Actual Output: Missing file for redirection
+Result: Pass
+
+Test Case 9: Missing Output Redirection File
+Input: echo hello >
+Expected Output: redirection error message is displayed
+Actual Output: Missing file for redirection
+Result: Pass / Fail
+
+Test Case 10: Single Pipe
+Input: echo hello | wc
+Expected Output: pipe works and wc receives input from echo
+Actual Output: 1 1 6
+Result: Pass
+
+Test Case 11: Multiple Pipes
+Input: echo hello world | tr a-z A-Z | wc
+Expected Output: multi-stage pipeline runs successfully
+Actual Output:  1       2      12
+Result: Pass
+
+Test Case 12: Invalid Pipe Syntax
+Input: ls |
+Expected Output: syntax error is displayed and shell keeps running
+Actual Output: syntax error: empty command in pipeline
+Result: Pass
+
+Test Case 13: Leading Pipe Error
+Input: | ls
+Expected Output: syntax error is displayed and shell keeps running
+Actual Output: syntax error: leading pipe
+Result: Pass
+
+Test Case 14: Empty Pipeline Command
+Input: ls | | wc
+Expected Output: syntax error is displayed and shell keeps running
+Actual Output: syntax error: empty command in pipeline
+Result: Pass
+
+Test Case 15: Background Process
+Input: sleep 5 &
+Expected Output: shell returns to prompt immediately and background pid is shown
+Actual Output: [background pid 16836]
+Result: Pass
+
+Test Case 16: Invalid Background Syntax
+Input: sleep & 5
+Expected Output: syntax error is displayed and shell keeps running
+Actual Output: '&' must appear only at the end
+Result: Pass
+
+Test Case 17: Invalid Command
+Input: fakecommand
+Expected Output: command not found error is displayed
+Actual Output: fakecommand: command not found
+Result: Pass 
+
+Test Case 18: SIGINT Handling
+Input: sleep 10
+Action: press Ctrl+C
+Expected Output: child process is interrupted and shell keeps running
+Actual Output: Child terminated by signal: 2
+Result: Pass
+
+Test Case 19: SIGTSTP Handling
+Input: sleep 10
+Action: press Ctrl+Z
+Expected Output: child process is stopped and shell keeps running
+Actual Output: Child stopped by signal: 20
+Result: Pass / Fail
+
+Test Case 20: Interactive Mode
+Input: start shell and enter commands manually
+Expected Output: shell shows prompt and accepts commands repeatedly
+Actual Output:
+Result: Pass
+
+Test Case 21: Batch Mode
+Input: ./main commands.txt
+Expected Output: commands from the file are executed in order
+Actual Output: 
+commands.txt$ echo Hello from the file!
+Hello from the file!
+commands.txt$ ls -lah
+total 40K
+drwxrwxrwx 1 abeasley1 abeasley1 4.0K May  4 17:11 .
+drwxrwxrwx 1 abeasley1 abeasley1 4.0K May  2 21:38 ..
+drwxrwxrwx 1 abeasley1 abeasley1 4.0K May  4 16:25 .git
+-rwxrwxrwx 1 abeasley1 abeasley1  296 Apr 26 16:54 README.md
+-rwxrwxrwx 1 abeasley1 abeasley1   84 Apr 26 16:54 commands.txt
+-rwxrwxrwx 1 abeasley1 abeasley1  26K May  4 17:11 main
+-rwxrwxrwx 1 abeasley1 abeasley1  668 Apr 26 16:54 main.c
+-rwxrwxrwx 1 abeasley1 abeasley1 1.5K May  4 17:11 main.o
+-rwxrwxrwx 1 abeasley1 abeasley1  391 Apr 26 16:54 makefile
+-rwxrwxrwx 1 abeasley1 abeasley1    6 May  4 16:52 out.txt
+drwxrwxrwx 1 abeasley1 abeasley1 4.0K May  4 17:11 shell
+-rwxrwxrwx 1 abeasley1 abeasley1 4.8K May  4 17:13 test_case_report.txt
+
+File execution complete.
+Result: Pass 
+
+Test Case 22: Pipe and Redirection Together
+Input: cat < data.txt | wc > count.txt
+Expected Output: no terminal output, result is written to count.txt
+Actual Output:
+Result: Pass 
+
+Test Case 23: cd with Too Many Arguments
+Input: cd dir1 dir2
+Expected Output: cd error message is displayed and shell keeps running
+Actual Output: cd: too many arguments
+Result: Pass
